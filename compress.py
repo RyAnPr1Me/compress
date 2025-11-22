@@ -81,7 +81,8 @@ class VideoCompressor:
         """Check if OMEGA encoder implementation is available"""
         return OMEGA_ENCODER_AVAILABLE
     
-    def get_omega_encoder(self, width: int, height: int, fps: int = 30, quality: int = 15):
+    def get_omega_encoder(self, width: int, height: int, fps: int = 30, quality: int = 15,
+                          chroma_subsampling: bool = True, aggressive_compression: bool = False):
         """
         Get an instance of the OMEGA encoder
         
@@ -90,6 +91,8 @@ class VideoCompressor:
             height: Video height
             fps: Frames per second
             quality: Quality level (0-51)
+            chroma_subsampling: Use 4:2:0 chroma subsampling for higher compression (default: True)
+            aggressive_compression: Enable aggressive mode for 50:1+ compression ratios (default: False)
             
         Returns:
             OMEGAEncoder instance
@@ -100,7 +103,7 @@ class VideoCompressor:
         if not OMEGA_ENCODER_AVAILABLE:
             raise RuntimeError("OMEGA encoder implementation not available. Install numpy to use the encoder.")
         
-        return OMEGAEncoder(width, height, fps, quality)
+        return OMEGAEncoder(width, height, fps, quality, chroma_subsampling, aggressive_compression)
         
     def _initialize_codecs(self) -> Dict[VideoCodec, CodecCapabilities]:
         """Initialize codec capabilities"""

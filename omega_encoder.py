@@ -20,7 +20,8 @@ except ImportError:
 class OMEGAEncoder:
     """OMEGA video encoder with actual compression algorithms"""
     
-    def __init__(self, width: int, height: int, fps: int = 30, quality: int = 15):
+    def __init__(self, width: int, height: int, fps: int = 30, quality: int = 15, 
+                 chroma_subsampling: bool = True, aggressive_compression: bool = False):
         """
         Initialize OMEGA encoder
         
@@ -35,6 +36,8 @@ class OMEGAEncoder:
                      - 20-30: Good quality, some artifacts (PSNR > 30 dB)
                      - 30+: Lower quality, visible artifacts
                      Default: 15 (excellent visual similarity)
+            chroma_subsampling: Use 4:2:0 chroma subsampling for higher compression
+            aggressive_compression: Enable aggressive compression mode for 50:1+ ratios
         """
         self.width = width
         self.height = height
@@ -42,6 +45,8 @@ class OMEGAEncoder:
         self.quality = quality
         self.block_size = 16  # DCT block size
         self.search_range = 16  # Motion estimation search range
+        self.chroma_subsampling = chroma_subsampling
+        self.aggressive_compression = aggressive_compression
         
     def encode_frame(self, frame: np.ndarray, is_keyframe: bool = False) -> bytes:
         """
@@ -81,7 +86,7 @@ class OMEGAEncoder:
         return header + compressed_data
     
     def _rgb_to_yuv(self, rgb: np.ndarray) -> np.ndarray:
-        """Convert RGB to YUV color space"""
+        """Convert RGB to YUV color space with optional chroma subsampling"""
         yuv = np.zeros_like(rgb, dtype=np.float32)
         
         # YUV conversion matrix
@@ -89,7 +94,27 @@ class OMEGAEncoder:
         yuv[:, :, 1] = -0.147 * rgb[:, :, 0] - 0.289 * rgb[:, :, 1] + 0.436 * rgb[:, :, 2] + 128
         yuv[:, :, 2] = 0.615 * rgb[:, :, 0] - 0.515 * rgb[:, :, 1] - 0.100 * rgb[:, :, 2] + 128
         
-        return yuv.astype(np.uint8)
+        yuv = yuv.astype(np.uint8)
+        
+        # Apply chroma subsampling (4:2:0) if enabled
+        if self.chroma_subsampling:
+            # Downsample U and V channels by 2x2
+            yuv[:, :, 1] = self._downsample_chroma(yuv[:, :, 1])
+            yuv[:, :, 2] = self._downsample_chroma(yuv[:, :, 2])
+        
+        return yuv
+    
+    def _downsample_chroma(self, channel: np.ndarray) -> np.ndarray:
+        """Downsample chroma channel 2x2 (4:2:0 subsampling)"""
+        h, w = channel.shape
+        # Average 2x2 blocks
+        downsampled = np.zeros_like(channel)
+        for y in range(0, h, 2):
+            for x in range(0, w, 2):
+                block = channel[y:min(y+2, h), x:min(x+2, w)]
+                avg_value = int(np.mean(block))
+                downsampled[y:min(y+2, h), x:min(x+2, w)] = avg_value
+        return downsampled
     
     def _yuv_to_rgb(self, yuv: np.ndarray) -> np.ndarray:
         """Convert YUV to RGB color space"""
@@ -144,6 +169,13 @@ class OMEGAEncoder:
             
             # Encode blocks with simple compression
             for coeffs in compressed_blocks:
+                # In aggressive mode, truncate high-frequency coefficients (mostly zeros)
+                if self.aggressive_compression:
+                    # Keep only first 15% of coefficients for extreme 50:1+ compression
+                    # Discard high frequencies which contribute minimally to perception
+                    truncate_point = max(5, len(coeffs) // 7)
+                    coeffs = coeffs[:truncate_point]
+                
                 # Simple run-length encoding
                 rle_data = self._run_length_encode(coeffs)
                 output.write(struct.pack('>H', len(rle_data)))
@@ -181,11 +213,16 @@ class OMEGAEncoder:
         Quantize DCT coefficients based on quality
         
         Higher quality = less quantization = larger file size
+        Aggressive mode applies stronger quantization for higher compression
         """
         # Quality-based quantization matrix
         q_base = 50 - quality
         if q_base < 1:
             q_base = 1
+        
+        # Apply aggressive compression multiplier if enabled
+        if self.aggressive_compression:
+            q_base = q_base * 4.0  # Increase quantization significantly for 50:1+ compression
         
         # Standard JPEG quantization matrix scaled by quality
         q_matrix = np.array([
@@ -199,13 +236,22 @@ class OMEGAEncoder:
             [72, 92, 95, 98, 112, 100, 103, 99]
         ], dtype=np.float32)
         
+        # Apply perceptual weighting for aggressive mode
+        if self.aggressive_compression:
+            # Apply stronger quantization to high frequencies (bottom-right)
+            # which are less perceptually important
+            for i in range(8):
+                for j in range(8):
+                    freq_weight = 1.0 + (i + j) * 0.3  # Progressive increase
+                    q_matrix[i, j] *= freq_weight
+        
         # Extend to 16x16 if needed
         if dct_block.shape[0] == 16:
             q_matrix_16 = np.zeros((16, 16))
             q_matrix_16[:8, :8] = q_matrix
-            q_matrix_16[8:, :8] = q_matrix
-            q_matrix_16[:8, 8:] = q_matrix
-            q_matrix_16[8:, 8:] = q_matrix
+            q_matrix_16[8:, :8] = q_matrix * 1.2
+            q_matrix_16[:8, 8:] = q_matrix * 1.2
+            q_matrix_16[8:, 8:] = q_matrix * 1.5
             q_matrix = q_matrix_16
         
         q_matrix = q_matrix[:dct_block.shape[0], :dct_block.shape[1]]
@@ -219,6 +265,10 @@ class OMEGAEncoder:
         if q_base < 1:
             q_base = 1
         
+        # Apply aggressive compression multiplier if enabled
+        if self.aggressive_compression:
+            q_base = q_base * 4.0  # Match encoding quantization
+        
         q_matrix = np.array([
             [16, 11, 10, 16, 24, 40, 51, 61],
             [12, 12, 14, 19, 26, 58, 60, 55],
@@ -230,12 +280,19 @@ class OMEGAEncoder:
             [72, 92, 95, 98, 112, 100, 103, 99]
         ], dtype=np.float32)
         
+        # Apply perceptual weighting for aggressive mode
+        if self.aggressive_compression:
+            for i in range(8):
+                for j in range(8):
+                    freq_weight = 1.0 + (i + j) * 0.3
+                    q_matrix[i, j] *= freq_weight
+        
         if quantized.shape[0] == 16:
             q_matrix_16 = np.zeros((16, 16))
             q_matrix_16[:8, :8] = q_matrix
-            q_matrix_16[8:, :8] = q_matrix
-            q_matrix_16[:8, 8:] = q_matrix
-            q_matrix_16[8:, 8:] = q_matrix
+            q_matrix_16[8:, :8] = q_matrix * 1.2
+            q_matrix_16[:8, 8:] = q_matrix * 1.2
+            q_matrix_16[8:, 8:] = q_matrix * 1.5
             q_matrix = q_matrix_16
         
         q_matrix = q_matrix[:quantized.shape[0], :quantized.shape[1]]
