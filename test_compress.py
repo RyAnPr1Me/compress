@@ -278,6 +278,65 @@ class TestOMEGAAdvantages(unittest.TestCase):
         self.assertTrue(any("AI" in adv or "neural" in adv.lower() for adv in advantages))
 
 
+class TestOMEGAEncoder(unittest.TestCase):
+    """Test OMEGA encoder functionality"""
+    
+    def setUp(self):
+        """Set up test fixtures"""
+        self.compressor = VideoCompressor()
+    
+    def test_omega_encoder_availability(self):
+        """Test OMEGA encoder availability check"""
+        available = self.compressor.is_omega_encoder_available()
+        self.assertIsInstance(available, bool)
+        # With numpy installed, it should be available
+        self.assertTrue(available, "OMEGA encoder should be available with numpy")
+    
+    def test_get_omega_encoder(self):
+        """Test getting OMEGA encoder instance"""
+        if not self.compressor.is_omega_encoder_available():
+            self.skipTest("OMEGA encoder not available")
+        
+        encoder = self.compressor.get_omega_encoder(320, 240, fps=30, quality=20)
+        self.assertIsNotNone(encoder)
+        self.assertEqual(encoder.width, 320)
+        self.assertEqual(encoder.height, 240)
+        self.assertEqual(encoder.fps, 30)
+        self.assertEqual(encoder.quality, 20)
+    
+    def test_omega_encoder_basic_compression(self):
+        """Test basic OMEGA compression functionality"""
+        if not self.compressor.is_omega_encoder_available():
+            self.skipTest("OMEGA encoder not available")
+        
+        try:
+            import numpy as np
+            
+            # Create test frame
+            width, height = 160, 120
+            frame = np.zeros((height, width, 3), dtype=np.uint8)
+            frame[:, :, 0] = 128
+            
+            # Get encoder
+            encoder = self.compressor.get_omega_encoder(width, height, quality=20)
+            
+            # Encode
+            compressed = encoder.encode_frame(frame, is_keyframe=True)
+            self.assertIsInstance(compressed, bytes)
+            self.assertGreater(len(compressed), 0)
+            
+            # Decode
+            decoded = encoder.decode_frame(compressed)
+            self.assertEqual(decoded.shape, (height, width, 3))
+            
+            # Check compression happened
+            compression_ratio = frame.nbytes / len(compressed)
+            self.assertGreater(compression_ratio, 1.0, "Should achieve compression")
+            
+        except ImportError:
+            self.skipTest("Numpy not available")
+
+
 class TestCodecCapabilities(unittest.TestCase):
     """Test codec capabilities"""
     
