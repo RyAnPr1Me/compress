@@ -20,7 +20,7 @@ except ImportError:
 class OMEGAEncoder:
     """OMEGA video encoder with actual compression algorithms"""
     
-    def __init__(self, width: int, height: int, fps: int = 30, quality: int = 18):
+    def __init__(self, width: int, height: int, fps: int = 30, quality: int = 15):
         """
         Initialize OMEGA encoder
         
@@ -29,6 +29,12 @@ class OMEGAEncoder:
             height: Video height in pixels
             fps: Frames per second
             quality: Quality level (0-51, lower = better quality)
+                     Recommended ranges:
+                     - 0-10: Excellent quality, near-lossless (PSNR > 38 dB)
+                     - 10-20: Very good quality, visually similar (PSNR > 35 dB)
+                     - 20-30: Good quality, some artifacts (PSNR > 30 dB)
+                     - 30+: Lower quality, visible artifacts
+                     Default: 15 (excellent visual similarity)
         """
         self.width = width
         self.height = height

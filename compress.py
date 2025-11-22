@@ -81,7 +81,7 @@ class VideoCompressor:
         """Check if OMEGA encoder implementation is available"""
         return OMEGA_ENCODER_AVAILABLE
     
-    def get_omega_encoder(self, width: int, height: int, fps: int = 30, quality: int = 18):
+    def get_omega_encoder(self, width: int, height: int, fps: int = 30, quality: int = 15):
         """
         Get an instance of the OMEGA encoder
         
