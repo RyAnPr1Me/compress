@@ -5,7 +5,7 @@ Unit tests for the video compression library
 import unittest
 from compress import (
     VideoCompressor, VideoCodec, CompressionPreset, 
-    CompressionSettings, get_vvc_advantages
+    CompressionSettings, get_vvc_advantages, get_omega_advantages
 )
 
 
@@ -18,6 +18,7 @@ class TestVideoCodec(unittest.TestCase):
         self.assertEqual(VideoCodec.H265.value, "h265")
         self.assertEqual(VideoCodec.AV1.value, "av1")
         self.assertEqual(VideoCodec.VVC.value, "vvc")
+        self.assertEqual(VideoCodec.OMEGA.value, "omega")
 
 
 class TestVideoCompressor(unittest.TestCase):
@@ -30,7 +31,7 @@ class TestVideoCompressor(unittest.TestCase):
     def test_initialization(self):
         """Test compressor initialization"""
         self.assertIsNotNone(self.compressor.codecs)
-        self.assertEqual(len(self.compressor.codecs), 4)
+        self.assertEqual(len(self.compressor.codecs), 5)
     
     def test_get_codec_info(self):
         """Test getting codec information"""
@@ -43,11 +44,12 @@ class TestVideoCompressor(unittest.TestCase):
     def test_compare_codecs(self):
         """Test codec comparison"""
         comparison = self.compressor.compare_codecs()
-        self.assertEqual(len(comparison), 4)
+        self.assertEqual(len(comparison), 5)
         self.assertIn("vvc", comparison)
         self.assertIn("h264", comparison)
         self.assertIn("h265", comparison)
         self.assertIn("av1", comparison)
+        self.assertIn("omega", comparison)
     
     def test_get_recommended_codec_8k_hdr(self):
         """Test codec recommendation for 8K HDR"""
@@ -56,7 +58,7 @@ class TestVideoCompressor(unittest.TestCase):
             require_hdr=True,
             computational_limit="high"
         )
-        self.assertEqual(recommended, VideoCodec.VVC)
+        self.assertEqual(recommended, VideoCodec.OMEGA)
     
     def test_get_recommended_codec_low_complexity(self):
         """Test codec recommendation for low complexity"""
@@ -186,13 +188,13 @@ class TestVideoCompressor(unittest.TestCase):
         self.assertFalse(valid)
         self.assertGreater(len(errors), 0)
     
-    def test_validate_settings_spatial_layers_non_vvc(self):
-        """Test validation of spatial layers with non-VVC codec"""
+    def test_validate_settings_spatial_layers_non_vvc_omega(self):
+        """Test validation of spatial layers with non-VVC/OMEGA codec"""
         settings = CompressionSettings(
             codec=VideoCodec.H265,
             preset=CompressionPreset.MEDIUM,
             crf=20,
-            enable_spatial_layers=True  # Only VVC supports this
+            enable_spatial_layers=True  # Only VVC and OMEGA support this
         )
         valid, errors = self.compressor.validate_settings(settings)
         self.assertFalse(valid)
@@ -262,6 +264,20 @@ class TestVVCAdvantages(unittest.TestCase):
         self.assertTrue(any("affine" in adv.lower() for adv in advantages))
 
 
+class TestOMEGAAdvantages(unittest.TestCase):
+    """Test OMEGA advantages function"""
+    
+    def test_get_omega_advantages(self):
+        """Test getting OMEGA advantages"""
+        advantages = get_omega_advantages()
+        self.assertIsInstance(advantages, list)
+        self.assertGreater(len(advantages), 20)
+        # Check for key advantages
+        self.assertTrue(any("75%" in adv for adv in advantages))
+        self.assertTrue(any("32K" in adv for adv in advantages))
+        self.assertTrue(any("AI" in adv or "neural" in adv.lower() for adv in advantages))
+
+
 class TestCodecCapabilities(unittest.TestCase):
     """Test codec capabilities"""
     
@@ -282,6 +298,21 @@ class TestCodecCapabilities(unittest.TestCase):
         self.assertTrue(caps.hdr_support)
         self.assertTrue(caps.streaming_optimized)
         self.assertGreater(len(caps.advanced_features), 15)
+    
+    def test_omega_capabilities(self):
+        """Test OMEGA codec capabilities"""
+        caps = self.compressor.get_codec_info(VideoCodec.OMEGA)
+        self.assertEqual(caps.max_resolution, "32K+")
+        self.assertIn(8, caps.bit_depth_support)
+        self.assertIn(10, caps.bit_depth_support)
+        self.assertIn(12, caps.bit_depth_support)
+        self.assertIn(16, caps.bit_depth_support)
+        self.assertIn(20, caps.bit_depth_support)
+        self.assertIn(24, caps.bit_depth_support)
+        self.assertEqual(caps.compression_efficiency, 4.0)
+        self.assertTrue(caps.hdr_support)
+        self.assertTrue(caps.streaming_optimized)
+        self.assertGreater(len(caps.advanced_features), 20)
     
     def test_h265_capabilities(self):
         """Test H.265/HEVC capabilities"""
@@ -308,33 +339,35 @@ class TestCodecCapabilities(unittest.TestCase):
         self.assertEqual(caps.compression_efficiency, 1.0)
         self.assertFalse(caps.hdr_support)
     
-    def test_vvc_is_most_efficient(self):
-        """Test that VVC has the highest compression efficiency"""
+    def test_omega_is_most_efficient(self):
+        """Test that OMEGA has the highest compression efficiency"""
         codecs = self.compressor.compare_codecs()
-        vvc_efficiency = codecs["vvc"].compression_efficiency
+        omega_efficiency = codecs["omega"].compression_efficiency
         
         for codec_name, caps in codecs.items():
-            if codec_name != "vvc":
-                self.assertGreater(vvc_efficiency, caps.compression_efficiency,
-                                 f"VVC should be more efficient than {codec_name}")
+            if codec_name != "omega":
+                self.assertGreater(omega_efficiency, caps.compression_efficiency,
+                                 f"OMEGA should be more efficient than {codec_name}")
     
-    def test_vvc_highest_resolution_support(self):
-        """Test that VVC supports the highest resolution"""
+    def test_omega_highest_resolution_support(self):
+        """Test that OMEGA supports the highest resolution"""
+        omega_caps = self.compressor.get_codec_info(VideoCodec.OMEGA)
         vvc_caps = self.compressor.get_codec_info(VideoCodec.VVC)
         h265_caps = self.compressor.get_codec_info(VideoCodec.H265)
         
+        self.assertEqual(omega_caps.max_resolution, "32K+")
         self.assertEqual(vvc_caps.max_resolution, "16K")
         self.assertEqual(h265_caps.max_resolution, "8K")
     
-    def test_vvc_most_advanced_features(self):
-        """Test that VVC has the most advanced features"""
+    def test_omega_most_advanced_features(self):
+        """Test that OMEGA has the most advanced features"""
         codecs = self.compressor.compare_codecs()
-        vvc_features = len(codecs["vvc"].advanced_features)
+        omega_features = len(codecs["omega"].advanced_features)
         
         for codec_name, caps in codecs.items():
-            if codec_name != "vvc":
-                self.assertGreater(vvc_features, len(caps.advanced_features),
-                                 f"VVC should have more features than {codec_name}")
+            if codec_name != "omega":
+                self.assertGreater(omega_features, len(caps.advanced_features),
+                                 f"OMEGA should have more features than {codec_name}")
 
 
 class TestCompressionSettings(unittest.TestCase):
